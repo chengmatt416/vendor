@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+  <style>
+    body { background-color: #f8f9fa; }
+    .product-card { transition: transform 0.2s; cursor: pointer; }
+    .product-card:hover { transform: translateY(-5px); }
+    .product-img { height: 150px; object-fit: cover; background: #eee; }
+    .signature-wrapper { border: 2px dashed #999; border-radius: 4px; background: white; }
+    canvas { width: 100%; height: 150px; display: block; }
+  </style>
+</head>
+<body>
+<div id="app" class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold">🛒 公司福利社</h2>
+    <div>
+      <div v-if="employee.isLoggedIn" class="d-flex align-items-center gap-2">
+        <span class="text-success fw-bold">{{ employee.name }}</span>
+        <span class="badge bg-warning text-dark">餘額 ${{ employee.balance }}</span>
+        <button class="btn btn-sm btn-outline-secondary" @click="logout">登出</button>
+      </div>
+      <button v-else class="btn btn-outline-primary" @click="showLoginModal=true">員工登入</button>
+    </div>
+  </div>
+
+  <div v-if="loading" class="text-center py-5">載入中...</div>
+  <div v-else class="row g-4">
+    <div class="col-md-3 col-6" v-for="p in products" :key="p.id">
+      <div class="card product-card h-100 shadow-sm" @click="selectProduct(p)">
+        <div class="product-img d-flex align-items-center justify-content-center text-muted">
+           <img v-if="p.image" :src="p.image" style="width:100%; height:100%; object-fit:cover;">
+           <span v-else>無圖片</span>
+        </div>
+        <div class="card-body">
+          <h5 class="card-title">{{ p.name }}</h5>
+          <p class="card-text text-danger fw-bold mb-1">${{ p.price }}</p>
+          <small class="text-muted">庫存: {{ p.stock }}</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="showLoginModal" class="modal d-block" style="background: rgba(0,0,0,0.5)">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">員工登入</h5><button class="btn-close" @click="showLoginModal=false"></button></div>
+        <div class="modal-body"><input type="password" class="form-control" v-model="loginCode" placeholder="請輸入員工代號"></div>
+        <div class="modal-footer"><button class="btn btn-primary w-100" @click="doLogin" :disabled="authLoading">登入</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="selectedProduct" class="modal d-block" style="background: rgba(0,0,0,0.5); overflow-y:auto;">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">購買: {{ selectedProduct.name }}</h5><button class="btn-close" @click="closeBuyModal"></button></div>
+        <div class="modal-body">
+          <div class="mb-3"><label>數量</label><input type="number" class="form-control" v-model.number="order.qty" min="1" :max="selectedProduct.stock"></div>
+          <div class="h4 text-end text-danger">總計: ${{ totalPrice }}</div>
+          
+          <div v-if="!employee.isLoggedIn">
+            <hr>
+            <input type="text" class="form-control mb-2" v-model="order.userName" placeholder="姓名 (必填)">
+            <input type="email" class="form-control mb-2" v-model="order.userEmail" placeholder="Email (必填)">
+            <input type="text" class="form-control mb-2" v-model="order.userDept" placeholder="部門">
+          </div>
+
+          <div class="mt-3">
+            <label class="fw-bold mb-1">請簽名確認：</label>
+            <div class="signature-wrapper">
+              <canvas id="buy-pad"></canvas>
+            </div>
+            <div class="text-end mt-1"><button class="btn btn-sm btn-link text-secondary" @click="clearPad">清除重簽</button></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary w-100" @click="submitOrder" :disabled="submitting">{{ submitting ? '處理中...' : '確認購買' }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const { createApp, nextTick } = Vue;
+  createApp({
+    data() { return { products: [], loading: true, showLoginModal: false, authLoading: false, loginCode: '', employee: { isLoggedIn: false }, selectedProduct: null, submitting: false, order: { qty: 1, userName: '', userEmail: '', userDept: '' }, pad: null } },
+    computed: { totalPrice() { if(!this.selectedProduct) return 0; let p=this.selectedProduct; return (p.promoQty && this.order.qty >= p.promoQty ? p.promoPrice : p.price) * this.order.qty; } },
+    mounted() { google.script.run.withSuccessHandler(d=>{this.products=d;this.loading=false;}).getProductList(); },
+    methods: {
+      doLogin() { this.authLoading=true; google.script.run.withSuccessHandler(r=>{ this.authLoading=false; if(r.success){this.employee={isLoggedIn:true,...r};this.showLoginModal=false;}else alert(r.error); }).employeeLogin(this.loginCode); },
+      logout() { this.employee={isLoggedIn:false}; },
+      selectProduct(p) { 
+        this.selectedProduct=p; this.order.qty=1; 
+        // 彈窗打開後初始化簽名板
+        nextTick(() => this.initPad());
+      },
+      closeBuyModal() { this.selectedProduct=null; this.order={qty:1,userName:'',userEmail:'',userDept:''}; },
+      
+      initPad() {
+        const canvas = document.getElementById('buy-pad');
+        if(!canvas) return;
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        canvas.width = canvas.offsetWidth * ratio;
+        canvas.height = canvas.offsetHeight * ratio;
+        canvas.getContext("2d").scale(ratio, ratio);
+        this.pad = new SignaturePad(canvas);
+      },
+      clearPad() { if(this.pad) this.pad.clear(); },
+
+      submitOrder() {
+        if(this.order.qty > this.selectedProduct.stock) return alert('庫存不足');
+        if(!this.employee.isLoggedIn && !this.order.userName) return alert('請輸入姓名');
+        if(this.pad.isEmpty()) return alert('請簽名');
+
+        this.submitting=true;
+        const payload = { 
+          productName: this.selectedProduct.name, qty: this.order.qty, total: this.totalPrice, 
+          userName: this.order.userName, userEmail: this.order.userEmail, userDept: this.order.userDept, 
+          employeeCode: this.employee.code,
+          signature: this.pad.toDataURL()
+        };
+        
+        const handler = (res) => { 
+            this.submitting=false; 
+            if(res.success){ 
+                alert('購買成功！\n' + res.message); // 顯示寄信狀態
+                this.closeBuyModal(); location.reload(); 
+            } else alert(res.error); 
+        };
+        this.employee.isLoggedIn ? google.script.run.withSuccessHandler(handler).submitEmployeeOrder(payload) : google.script.run.withSuccessHandler(handler).submitOrder(payload);
+      }
+    }
+  }).mount('#app');
+</script>
+</body>
+</html>
