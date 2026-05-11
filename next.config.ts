@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  turbopack: {},
   webpack: (config) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,
