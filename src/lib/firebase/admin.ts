@@ -19,6 +19,12 @@ if (!admin.apps.length) {
     }
   } catch (error) {
     console.warn("Firebase Admin failed to initialize", error);
+    // If initialization fails due to invalid credentials (e.g. dummy values during build), fallback to demo project
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: 'demo-project-id',
+      });
+    }
   }
 }
 
