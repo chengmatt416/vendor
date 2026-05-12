@@ -3,31 +3,29 @@ import * as admin from 'firebase-admin';
 if (!admin.apps.length) {
   try {
     if (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+        let key = process.env.FIREBASE_PRIVATE_KEY;
         try {
-            let key = process.env.FIREBASE_PRIVATE_KEY;
+            // Attempt to JSON parse in case it was stringified by Vercel
+            key = JSON.parse(key);
+        } catch(e) {
+            // Not JSON parseable, fallback to standard regex replacement
             if (key.startsWith('"') && key.endsWith('"')) {
                 key = key.slice(1, -1);
             }
             key = key.replace(/\\n/g, '\n');
-
-            admin.initializeApp({
-              credential: admin.credential.cert({
-                projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                privateKey: key,
-              }),
-            });
-        } catch (innerError) {
-            console.warn("Firebase Admin primary initialization failed, falling back to demo project.", innerError);
-            admin.initializeApp({
-                projectId: 'demo-project-id',
-            });
         }
-    } else {
-        // Fallback for build phase
+
         admin.initializeApp({
-            projectId: 'demo-project-id',
+          credential: admin.credential.cert({
+            projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: key,
+          }),
         });
+    } else {
+        // Use application default if specific vars aren't provided,
+        // honoring the request not to use the 'demo-project-id' mock key.
+        admin.initializeApp();
     }
   } catch (error) {
     console.warn("Firebase Admin failed to initialize", error);
