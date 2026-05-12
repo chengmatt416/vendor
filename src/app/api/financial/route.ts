@@ -38,7 +38,14 @@ export async function GET() {
             const stock = Number(pData.stock) || 0;
             const cost = Number(pData.cost) || 0;
             inventoryValue += (stock * cost);
-            products.push({ id: doc.id, name: pData.name, stock, cost });
+            products.push({
+                id: doc.id,
+                name: pData.name,
+                stock,
+                cost,
+                price: Number(pData.price) || 0,
+                image: pData.image || ''
+            });
         });
 
         return NextResponse.json({

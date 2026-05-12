@@ -19,7 +19,12 @@ export default function POSSystem() {
     fetch('/api/products')
       .then(res => res.json())
       .then(data => {
-        setProducts(data);
+        if (Array.isArray(data)) setProducts(data);
+        else setProducts([]);
+        setLoading(false);
+      })
+      .catch(() => {
+        setProducts([]);
         setLoading(false);
       });
   }, []);
@@ -131,7 +136,10 @@ export default function POSSystem() {
           setShowCheckout(false);
           sigPad.current?.clear();
           // Reload products stock
-          fetch('/api/products').then(r=>r.json()).then(setProducts);
+          fetch('/api/products').then(r=>r.json()).then(d => {
+            if (Array.isArray(d)) setProducts(d);
+            else setProducts([]);
+          }).catch(() => setProducts([]));
       }
   };
 
