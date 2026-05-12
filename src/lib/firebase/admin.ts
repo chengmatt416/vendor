@@ -15,17 +15,31 @@ if (!admin.apps.length) {
             key = key.replace(/\\n/g, '\n');
         }
 
-        admin.initializeApp({
-          credential: admin.credential.cert({
-            projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: key,
-          }),
-        });
+        try {
+            admin.initializeApp({
+              credential: admin.credential.cert({
+                projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: key,
+              }),
+            });
+        } catch (innerError) {
+            console.warn("Firebase Admin primary initialization failed, falling back to demo project to prevent build crash.", innerError);
+            admin.initializeApp({
+                projectId: 'demo-project-id',
+            });
+        }
     } else {
         // Use application default if specific vars aren't provided,
         // honoring the request not to use the 'demo-project-id' mock key.
-        admin.initializeApp();
+        try {
+            admin.initializeApp();
+        } catch (innerError) {
+            console.warn("Firebase Admin default initialization failed, falling back to demo project to prevent build crash.", innerError);
+            admin.initializeApp({
+                projectId: 'demo-project-id',
+            });
+        }
     }
   } catch (error) {
     console.warn("Firebase Admin failed to initialize", error);
