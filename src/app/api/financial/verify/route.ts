@@ -4,7 +4,13 @@ import { adminDb } from '@/lib/firebase/admin';
 
 export async function POST(req: Request) {
     try {
-        const { code } = await req.json();
+        const { code, checkEmpty } = await req.json();
+
+        if (checkEmpty) {
+            const checkSnapshot = await adminDb.collection('employees').limit(1).get();
+            return NextResponse.json({ needsSetup: checkSnapshot.empty });
+        }
+
         const snapshot = await adminDb.collection('employees').where('code', '==', code).limit(1).get();
 
         if (snapshot.empty) {

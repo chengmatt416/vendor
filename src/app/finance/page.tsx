@@ -10,6 +10,8 @@ export default function FinancePage() {
   const [loginError, setLoginError] = useState('');
   const [user, setUser] = useState<{name: string, role: string, username: string} | null>(null);
   const [hasPasskey, setHasPasskey] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [setupName, setSetupName] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('records');
@@ -24,7 +26,39 @@ export default function FinancePage() {
        // but here we just show the button if supported.
        setHasPasskey(true);
     }
+
+    // Check if we need to setup the first admin
+    fetch('/api/financial/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkEmpty: true })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.needsSetup) setNeedsSetup(true);
+    }).catch(console.error);
   }, []);
+
+  const handleSetup = async () => {
+    if (!setupName || !inputCode) return alert('請輸入姓名與代號');
+    setLoggingIn(true);
+    try {
+      const res = await fetch('/api/employees/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: setupName, code: inputCode })
+      });
+      const result = await res.json();
+      if (result.success) {
+        setNeedsSetup(false);
+        handleLoginSuccess(result.name, result.role, result.username);
+      } else {
+        setLoginError(result.error || '設定失敗');
+      }
+    } finally {
+      setLoggingIn(false);
+    }
+  };
 
   const loginWithCode = async () => {
     if (!inputCode) return;
@@ -196,23 +230,35 @@ export default function FinancePage() {
     return (
       <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center">
-          <div className="text-5xl mb-6">🔐</div>
-          <h3 className="text-2xl font-bold mb-2">財務系統</h3>
-          <p className="text-gray-500 text-sm mb-6">請驗證身份以繼續</p>
+          <div className="text-5xl mb-6">{needsSetup ? '🛠️' : '🔐'}</div>
+          <h3 className="text-2xl font-bold mb-2">{needsSetup ? '初始化系統' : '財務系統'}</h3>
+          <p className="text-gray-500 text-sm mb-6">{needsSetup ? '請建立第一位管理員' : '請驗證身份以繼續'}</p>
 
-          {hasPasskey && (
+          {needsSetup ? (
             <>
-              <button onClick={loginWithPasskey} className="w-full bg-indigo-50 text-indigo-600 border border-indigo-200 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition">
-                <Fingerprint className="w-5 h-5" /> 生物辨識登入
+              <input type="text" value={setupName} onChange={e => setSetupName(e.target.value)} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="您的姓名" />
+              <input type="password" value={inputCode} onChange={e => setInputCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSetup()} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="設定登入代碼" />
+              <button onClick={handleSetup} disabled={loggingIn} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50">
+                {loggingIn ? '處理中...' : '建立管理員並登入'}
               </button>
-              <div className="text-gray-400 text-sm my-4">- 或 -</div>
+            </>
+          ) : (
+            <>
+              {hasPasskey && (
+                <>
+                  <button onClick={loginWithPasskey} className="w-full bg-indigo-50 text-indigo-600 border border-indigo-200 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition">
+                    <Fingerprint className="w-5 h-5" /> 生物辨識登入
+                  </button>
+                  <div className="text-gray-400 text-sm my-4">- 或 -</div>
+                </>
+              )}
+
+              <input type="password" value={inputCode} onChange={e => setInputCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && loginWithCode()} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="輸入代碼" />
+              <button onClick={loginWithCode} disabled={loggingIn} className="w-full bg-gray-900 text-white py-3 rounded-xl font-bold hover:bg-gray-800 disabled:opacity-50">
+                {loggingIn ? '驗證中...' : '密碼登入'}
+              </button>
             </>
           )}
-
-          <input type="password" value={inputCode} onChange={e => setInputCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && loginWithCode()} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="輸入代碼" />
-          <button onClick={loginWithCode} disabled={loggingIn} className="w-full bg-gray-900 text-white py-3 rounded-xl font-bold hover:bg-gray-800 disabled:opacity-50">
-            {loggingIn ? '驗證中...' : '密碼登入'}
-          </button>
 
           {loginError && <div className="text-red-500 text-sm mt-3 font-bold">{loginError}</div>}
           <div className="mt-8 pt-4 border-t"><a href="/" className="text-gray-400 hover:text-gray-600 text-sm">← 返回首頁</a></div>
@@ -363,12 +409,13 @@ export default function FinancePage() {
                           </td>
                           <td className="p-3">
                             <input
-                              type="text"
-                              defaultValue={emp.code}
+                              type="password"
+                              placeholder="****"
                               disabled={!isAdmin}
                               onBlur={(e) => {
-                                  if(e.target.value !== emp.code) {
+                                  if(e.target.value && e.target.value.trim() !== '') {
                                      fetch('/api/employees', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: emp.id, code: e.target.value }) }).then(fetchData);
+                                     e.target.value = '';
                                   }
                               }}
                               className="border rounded p-1 w-24 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"

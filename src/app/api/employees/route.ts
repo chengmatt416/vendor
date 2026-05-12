@@ -8,7 +8,10 @@ export async function GET() {
         const snapshot = await adminDb.collection('employees').get();
         const employees: any[] = [];
         snapshot.forEach(doc => {
-            employees.push({ id: doc.id, ...doc.data() });
+            const data = doc.data();
+            // Don't leak auth code to the frontend list
+            const { code, ...safeData } = data;
+            employees.push({ id: doc.id, ...safeData });
         });
         return NextResponse.json(employees);
     } catch (error: any) {
