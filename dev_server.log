@@ -9,3 +9,5 @@
 
  POST /api/financial/verify 500 in 3.5s (next.js: 745ms, application-code: 2.7s)
  GET /finance 200 in 785ms (next.js: 355ms, application-code: 430ms)
+ POST /api/financial/verify 200 in 698ms (next.js: 618ms, application-code: 79ms)
+ POST /api/employees/setup 500 in 1688ms (next.js: 1641ms, application-code: 47ms)

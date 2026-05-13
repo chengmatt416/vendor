@@ -24,21 +24,14 @@ if (!admin.apps.length) {
               }),
             });
         } catch (innerError) {
-            console.warn("Firebase Admin primary initialization failed, falling back to demo project to prevent build crash.", innerError);
-            admin.initializeApp({
-                projectId: 'demo-project-id',
-            });
+            console.warn("Firebase Admin primary initialization failed.", innerError);
         }
     } else {
-        // Use application default if specific vars aren't provided,
-        // honoring the request not to use the 'demo-project-id' mock key.
+        // Use application default if specific vars aren't provided
         try {
             admin.initializeApp();
         } catch (innerError) {
-            console.warn("Firebase Admin default initialization failed, falling back to demo project to prevent build crash.", innerError);
-            admin.initializeApp({
-                projectId: 'demo-project-id',
-            });
+            console.warn("Firebase Admin default initialization failed.", innerError);
         }
     }
   } catch (error) {
@@ -46,5 +39,9 @@ if (!admin.apps.length) {
   }
 }
 
-export const adminDb = admin.firestore();
-export const adminAuth = admin.auth();
+export const adminDb = new Proxy({} as admin.firestore.Firestore, {
+    get: (target, prop) => admin.firestore()[prop as keyof admin.firestore.Firestore]
+});
+export const adminAuth = new Proxy({} as admin.auth.Auth, {
+    get: (target, prop) => admin.auth()[prop as keyof admin.auth.Auth]
+});
