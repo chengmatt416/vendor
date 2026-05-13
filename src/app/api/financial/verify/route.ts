@@ -4,7 +4,19 @@ import { adminDb } from '@/lib/firebase/admin';
 
 export async function POST(req: Request) {
     try {
-        const { code } = await req.json();
+        const { code, checkEmpty } = await req.json();
+
+        if (checkEmpty) {
+            try {
+                const checkSnapshot = await adminDb.collection('employees').limit(1).get();
+                return NextResponse.json({ needsSetup: checkSnapshot.empty });
+            } catch (e: any) {
+                // If the database fails to initialize or cannot be read (e.g. missing credentials),
+                // we assume it needs setup.
+                return NextResponse.json({ needsSetup: true, error: e.message });
+            }
+        }
+
         const snapshot = await adminDb.collection('employees').where('code', '==', code).limit(1).get();
 
         if (snapshot.empty) {

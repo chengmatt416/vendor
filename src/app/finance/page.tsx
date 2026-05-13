@@ -10,10 +10,13 @@ export default function FinancePage() {
   const [loginError, setLoginError] = useState('');
   const [user, setUser] = useState<{name: string, role: string, username: string} | null>(null);
   const [hasPasskey, setHasPasskey] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [setupName, setSetupName] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('records');
   const [data, setData] = useState<{records: any[], stats: any, products: any[]}>({ records: [], stats: {}, products: [] });
+  const [employees, setEmployees] = useState<any[]>([]);
   const [newRec, setNewRec] = useState({ type: '支出', amount: '', note: '' });
 
   useEffect(() => {
@@ -23,7 +26,41 @@ export default function FinancePage() {
        // but here we just show the button if supported.
        setHasPasskey(true);
     }
+
+    // Check if we need to setup the first admin
+    fetch('/api/financial/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkEmpty: true })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.needsSetup || data.error) setNeedsSetup(true);
+    }).catch(() => {
+      setNeedsSetup(true);
+    });
   }, []);
+
+  const handleSetup = async () => {
+    if (!setupName || !inputCode) return alert('請輸入姓名與代號');
+    setLoggingIn(true);
+    try {
+      const res = await fetch('/api/employees/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: setupName, code: inputCode })
+      });
+      const result = await res.json();
+      if (result.success) {
+        setNeedsSetup(false);
+        handleLoginSuccess(result.name, result.role, result.username);
+      } else {
+        setLoginError(result.error || '設定失敗');
+      }
+    } finally {
+      setLoggingIn(false);
+    }
+  };
 
   const loginWithCode = async () => {
     if (!inputCode) return;
@@ -109,7 +146,19 @@ export default function FinancePage() {
     try {
       const res = await fetch('/api/financial');
       const d = await res.json();
-      setData(d);
+      if (d && !d.error && Array.isArray(d.records) && Array.isArray(d.products)) {
+        setData(d);
+      } else {
+        setData({ records: [], stats: {}, products: [] });
+      }
+
+      const empRes = await fetch('/api/employees');
+      const empData = await empRes.json();
+      if (Array.isArray(empData)) setEmployees(empData);
+      else setEmployees([]);
+    } catch (e) {
+      setData({ records: [], stats: {}, products: [] });
+      setEmployees([]);
     } finally {
       setLoading(false);
     }
@@ -141,14 +190,37 @@ export default function FinancePage() {
     } catch (e) {}
   };
 
-  const updateCost = async (id: string, cost: number) => {
+  const updateProduct = async (id: string, field: string, value: any) => {
     if (user?.role !== 'admin' && user?.role !== 'manager') return;
     try {
       await fetch('/api/products', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, cost })
+        body: JSON.stringify({ id, [field]: value })
       });
+      fetchData();
+    } catch (e) {}
+  };
+
+  const addProduct = async () => {
+    if (user?.role !== 'admin' && user?.role !== 'manager') return;
+    const name = prompt("請輸入商品名稱：");
+    if (!name) return;
+    try {
+      await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, price: 0, cost: 0, stock: 0 })
+      });
+      fetchData();
+    } catch (e) {}
+  };
+
+  const delProduct = async (id: string) => {
+    if (user?.role !== 'admin' && user?.role !== 'manager') return;
+    if (!confirm('確定刪除此商品？')) return;
+    try {
+      await fetch(`/api/products?id=${id}`, { method: 'DELETE' });
       fetchData();
     } catch (e) {}
   };
@@ -160,23 +232,35 @@ export default function FinancePage() {
     return (
       <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center">
-          <div className="text-5xl mb-6">🔐</div>
-          <h3 className="text-2xl font-bold mb-2">財務系統</h3>
-          <p className="text-gray-500 text-sm mb-6">請驗證身份以繼續</p>
+          <div className="text-5xl mb-6">{needsSetup ? '🛠️' : '🔐'}</div>
+          <h3 className="text-2xl font-bold mb-2">{needsSetup ? '初始化系統' : '財務系統'}</h3>
+          <p className="text-gray-500 text-sm mb-6">{needsSetup ? '請建立第一位管理員' : '請驗證身份以繼續'}</p>
 
-          {hasPasskey && (
+          {needsSetup ? (
             <>
-              <button onClick={loginWithPasskey} className="w-full bg-indigo-50 text-indigo-600 border border-indigo-200 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition">
-                <Fingerprint className="w-5 h-5" /> 生物辨識登入
+              <input type="text" value={setupName} onChange={e => setSetupName(e.target.value)} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="您的姓名" />
+              <input type="password" value={inputCode} onChange={e => setInputCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSetup()} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="設定登入代碼" />
+              <button onClick={handleSetup} disabled={loggingIn} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50">
+                {loggingIn ? '處理中...' : '建立管理員並登入'}
               </button>
-              <div className="text-gray-400 text-sm my-4">- 或 -</div>
+            </>
+          ) : (
+            <>
+              {hasPasskey && (
+                <>
+                  <button onClick={loginWithPasskey} className="w-full bg-indigo-50 text-indigo-600 border border-indigo-200 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition">
+                    <Fingerprint className="w-5 h-5" /> 生物辨識登入
+                  </button>
+                  <div className="text-gray-400 text-sm my-4">- 或 -</div>
+                </>
+              )}
+
+              <input type="password" value={inputCode} onChange={e => setInputCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && loginWithCode()} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="輸入代碼" />
+              <button onClick={loginWithCode} disabled={loggingIn} className="w-full bg-gray-900 text-white py-3 rounded-xl font-bold hover:bg-gray-800 disabled:opacity-50">
+                {loggingIn ? '驗證中...' : '密碼登入'}
+              </button>
             </>
           )}
-
-          <input type="password" value={inputCode} onChange={e => setInputCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && loginWithCode()} className="w-full border-2 bg-gray-50 rounded-xl p-3 text-center mb-4 text-lg tracking-widest outline-none focus:border-gray-900" placeholder="輸入代碼" />
-          <button onClick={loginWithCode} disabled={loggingIn} className="w-full bg-gray-900 text-white py-3 rounded-xl font-bold hover:bg-gray-800 disabled:opacity-50">
-            {loggingIn ? '驗證中...' : '密碼登入'}
-          </button>
 
           {loginError && <div className="text-red-500 text-sm mt-3 font-bold">{loginError}</div>}
           <div className="mt-8 pt-4 border-t"><a href="/" className="text-gray-400 hover:text-gray-600 text-sm">← 返回首頁</a></div>
@@ -228,6 +312,7 @@ export default function FinancePage() {
           <div className="flex gap-2 mb-6">
             <button onClick={() => setTab('records')} className={`px-4 py-2 rounded-lg font-medium transition ${tab === 'records' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>📝 收支紀錄</button>
             <button onClick={() => setTab('products')} className={`px-4 py-2 rounded-lg font-medium transition ${tab === 'products' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>📦 庫存成本</button>
+            <button onClick={() => setTab('employees')} className={`px-4 py-2 rounded-lg font-medium transition ${tab === 'employees' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>👥 員工資料</button>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -279,28 +364,176 @@ export default function FinancePage() {
               </div>
             )}
 
-            {tab === 'products' && (
+            {tab === 'employees' && (
               <div className="p-4 md:p-6">
                  {isAdmin ? (
-                  <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm mb-6">💡 修改成本後失去焦點(Blur)即自動儲存。</div>
+                  <div className="flex flex-wrap gap-4 items-center justify-between mb-6">
+                    <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm flex-1">💡 修改欄位後失去焦點(Blur)即自動儲存。</div>
+                    <button onClick={() => {
+                        const name = prompt("請輸入員工姓名：");
+                        const code = prompt("請輸入員工代號 (Code)：");
+                        if (!name || !code) return;
+                        fetch('/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, code }) }).then(fetchData);
+                    }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-1 hover:bg-blue-700 whitespace-nowrap"><Plus className="w-4 h-4"/> 新增員工</button>
+                  </div>
                 ) : (
-                  <div className="bg-yellow-50 text-yellow-800 p-3 rounded-lg text-sm mb-6">🔒 檢視者模式：您無法修改成本。</div>
+                  <div className="bg-yellow-50 text-yellow-800 p-3 rounded-lg text-sm mb-6">🔒 檢視者模式：您無法修改資料。</div>
                 )}
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-gray-50 border-b text-gray-500 text-sm">
-                        <th className="p-3 font-medium">商品</th>
+                        <th className="p-3 font-medium">員工姓名</th>
+                        <th className="p-3 font-medium">員工代號 (Code)</th>
+                        <th className="p-3 font-medium">帳號 (Username)</th>
+                        <th className="p-3 font-medium">權限角色</th>
+                        <th className="p-3 font-medium">信用額度</th>
+                        <th className="p-3 font-medium">已用額度</th>
+                        <th className="p-3 font-medium">餘額</th>
+                        {isAdmin && <th className="p-3 font-medium"></th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employees.map(emp => (
+                        <tr key={emp.id} className="border-b last:border-0 hover:bg-gray-50">
+                          <td className="p-3">
+                            <input
+                              type="text"
+                              defaultValue={emp.name}
+                              disabled={!isAdmin}
+                              onBlur={(e) => {
+                                  if(e.target.value !== emp.name) {
+                                     fetch('/api/employees', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: emp.id, name: e.target.value }) }).then(fetchData);
+                                  }
+                              }}
+                              className="border rounded p-1 w-full outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <input
+                              type="password"
+                              placeholder="****"
+                              disabled={!isAdmin}
+                              onBlur={(e) => {
+                                  if(e.target.value && e.target.value.trim() !== '') {
+                                     fetch('/api/employees', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: emp.id, code: e.target.value }) }).then(fetchData);
+                                     e.target.value = '';
+                                  }
+                              }}
+                              className="border rounded p-1 w-24 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"
+                            />
+                          </td>
+                          <td className="p-3 text-sm text-gray-500">{emp.username}</td>
+                          <td className="p-3">
+                            <select
+                              defaultValue={emp.role}
+                              disabled={!isAdmin}
+                              onChange={(e) => {
+                                 fetch('/api/employees', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: emp.id, role: e.target.value }) }).then(fetchData);
+                              }}
+                              className="border rounded p-1 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent disabled:appearance-none"
+                            >
+                               <option value="admin">Admin</option>
+                               <option value="manager">Manager</option>
+                               <option value="viewer">Viewer</option>
+                            </select>
+                          </td>
+                          <td className="p-3">
+                             <div className="flex items-center">
+                              <span className="text-gray-400 mr-1">$</span>
+                              <input
+                                type="number"
+                                defaultValue={emp.creditLimit}
+                                disabled={!isAdmin}
+                                onBlur={(e) => {
+                                    if(Number(e.target.value) !== emp.creditLimit) {
+                                        fetch('/api/employees', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: emp.id, creditLimit: Number(e.target.value) }) }).then(fetchData);
+                                    }
+                                }}
+                                className="border rounded p-1 w-20 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"
+                              />
+                            </div>
+                          </td>
+                          <td className="p-3">
+                             <div className="flex items-center">
+                              <span className="text-gray-400 mr-1">$</span>
+                              <input
+                                type="number"
+                                defaultValue={emp.usedCredit}
+                                disabled={!isAdmin}
+                                onBlur={(e) => {
+                                    if(Number(e.target.value) !== emp.usedCredit) {
+                                        fetch('/api/employees', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: emp.id, usedCredit: Number(e.target.value) }) }).then(fetchData);
+                                    }
+                                }}
+                                className="border rounded p-1 w-20 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"
+                              />
+                            </div>
+                          </td>
+                          <td className="p-3 font-bold text-gray-700">${Number(emp.creditLimit || 0) - Number(emp.usedCredit || 0)}</td>
+                          {isAdmin && (
+                            <td className="p-3 text-right">
+                              <button onClick={() => {
+                                  if (confirm('確定刪除此員工？')) {
+                                      fetch(`/api/employees?id=${emp.id}`, { method: 'DELETE' }).then(fetchData);
+                                  }
+                              }} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {tab === 'products' && (
+              <div className="p-4 md:p-6">
+                 {isAdmin ? (
+                  <div className="flex flex-wrap gap-4 items-center justify-between mb-6">
+                    <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm flex-1">💡 修改欄位後失去焦點(Blur)即自動儲存。</div>
+                    <button onClick={addProduct} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-1 hover:bg-blue-700 whitespace-nowrap"><Plus className="w-4 h-4"/> 新增商品</button>
+                  </div>
+                ) : (
+                  <div className="bg-yellow-50 text-yellow-800 p-3 rounded-lg text-sm mb-6">🔒 檢視者模式：您無法修改資料。</div>
+                )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b text-gray-500 text-sm">
+                        <th className="p-3 font-medium">商品名稱</th>
+                        <th className="p-3 font-medium">售價</th>
+                        <th className="p-3 font-medium">成本</th>
                         <th className="p-3 font-medium">庫存</th>
-                        <th className="p-3 font-medium">單價成本</th>
-                        <th className="p-3 font-medium">總值</th>
+                        <th className="p-3 font-medium">庫存總值</th>
+                        {isAdmin && <th className="p-3 font-medium"></th>}
                       </tr>
                     </thead>
                     <tbody>
                       {data.products.map(p => (
                         <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
-                          <td className="p-3">{p.name}</td>
-                          <td className={`p-3 ${p.stock < 5 ? 'text-red-500 font-bold' : ''}`}>{p.stock}</td>
+                          <td className="p-3">
+                            <input
+                              type="text"
+                              defaultValue={p.name}
+                              disabled={!isAdmin}
+                              onBlur={(e) => updateProduct(p.id, 'name', e.target.value)}
+                              className="border rounded p-1 w-full outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center">
+                              <span className="text-gray-400 mr-1">$</span>
+                              <input
+                                type="number"
+                                defaultValue={p.price}
+                                disabled={!isAdmin}
+                                onBlur={(e) => updateProduct(p.id, 'price', Number(e.target.value))}
+                                className="border rounded p-1 w-20 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"
+                              />
+                            </div>
+                          </td>
                           <td className="p-3">
                             <div className="flex items-center">
                               <span className="text-gray-400 mr-1">$</span>
@@ -308,12 +541,26 @@ export default function FinancePage() {
                                 type="number"
                                 defaultValue={p.cost}
                                 disabled={!isAdmin}
-                                onBlur={(e) => updateCost(p.id, Number(e.target.value))}
+                                onBlur={(e) => updateProduct(p.id, 'cost', Number(e.target.value))}
                                 className="border rounded p-1 w-20 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent"
                               />
                             </div>
                           </td>
+                          <td className={`p-3 ${p.stock < 5 ? 'text-red-500 font-bold' : ''}`}>
+                             <input
+                                type="number"
+                                defaultValue={p.stock}
+                                disabled={!isAdmin}
+                                onBlur={(e) => updateProduct(p.id, 'stock', Number(e.target.value))}
+                                className={`border rounded p-1 w-20 outline-none focus:border-blue-500 disabled:bg-transparent disabled:border-transparent ${p.stock < 5 ? 'text-red-500' : ''}`}
+                              />
+                          </td>
                           <td className="p-3 text-gray-500">${(p.stock * p.cost).toLocaleString()}</td>
+                          {isAdmin && (
+                            <td className="p-3 text-right">
+                              <button onClick={() => delProduct(p.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
