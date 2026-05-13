@@ -35,8 +35,10 @@ export default function FinancePage() {
     })
     .then(r => r.json())
     .then(data => {
-      if (data.needsSetup) setNeedsSetup(true);
-    }).catch(console.error);
+      if (data.needsSetup || data.error) setNeedsSetup(true);
+    }).catch(() => {
+      setNeedsSetup(true);
+    });
   }, []);
 
   const handleSetup = async () => {

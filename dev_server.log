@@ -1,0 +1,11 @@
+
+> temp_app@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.2:3000
+✓ Ready in 546ms
+
+ POST /api/financial/verify 500 in 3.5s (next.js: 745ms, application-code: 2.7s)
+ GET /finance 200 in 785ms (next.js: 355ms, application-code: 430ms)
